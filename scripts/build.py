@@ -9,8 +9,9 @@
 """
 Build script for AI SDK C++
 
-Usage: 
-    uv run scripts/build.py [OPTIONS]
+Usage:
+    uv run scripts/build.py --mode release
+    uv run scripts/build.py --mode debug --tests --clean
 """
 
 import os
@@ -30,21 +31,27 @@ console = Console()
 
 
 def run_command(cmd: list[str], cwd: Optional[Path] = None, check: bool = True) -> subprocess.CompletedProcess:
-    """Run a command and handle errors with rich output."""
+    """Run a shell command with pretty logging."""
     console.print(f"[dim]Running:[/dim] [cyan]{' '.join(cmd)}[/cyan]")
-    
+
     try:
-        result = subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            check=check,
+            capture_output=True,
+            text=True
+        )
         if result.stdout.strip():
             console.print(f"[dim]{result.stdout.strip()}[/dim]")
         return result
 
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Error running command:[/red] {e}")
-        if e.stderr:
-            console.print(f"[red]Error output:[/red] {e.stderr}")
+        console.print(f"[red]ERROR:[/red] Command failed: {' '.join(cmd)}")
         if e.stdout:
-            console.print(f"[yellow]Output:[/yellow] {e.stdout}")
+            console.print(f"[yellow]STDOUT:[/yellow]\n{e.stdout}")
+        if e.stderr:
+            console.print(f"[red]STDERR:[/red]\n{e.stderr}")
         sys.exit(1)
 
 
@@ -53,54 +60,54 @@ def run_command(cmd: list[str], cwd: Optional[Path] = None, check: bool = True) 
     "--mode",
     type=click.Choice(["debug", "release"], case_sensitive=False),
     default="debug",
-    help="Build configuration (debug or release)"
+    help="Build configuration"
 )
-@click.option("--tests", is_flag=True, help="Enable building tests")
-@click.option("--clean", is_flag=True, help="Clean build directory before building")
-@click.option("--verbose", is_flag=True, help="Enable verbose build output")
-@click.option("--export-compile-commands", is_flag=True, help="Export compile commands for IDEs")
-@click.option("--jobs", type=int, default=None, help="Number of parallel build jobs")
-def main(mode: str, tests: bool, clean: bool, verbose: bool, export_compile_commands: bool, jobs: Optional[int]):
-    """Build AI SDK C++ with modern tooling."""
-    
+@click.option("--tests", is_flag=True, help="Build tests")
+@click.option("--clean", is_flag=True, help="Clean build directory")
+@click.option("--verbose", is_flag=True, help="Verbose build")
+@click.option("--export-compile-commands", is_flag=True, help="Export compile_commands.json")
+@click.option("--jobs", type=int, default=None, help="Parallel build jobs")
+def main(mode: str, tests: bool, clean: bool, verbose: bool,
+         export_compile_commands: bool, jobs: Optional[int]):
+    """Build AI SDK C++."""
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     build_dir = project_root / "build"
 
     # -------------------------------
-    # Display configuration
+    # Show Build Configuration
     # -------------------------------
-    config_table = Table(title="Build Configuration", show_header=True, header_style="bold blue")
-    config_table.add_column("Setting", style="cyan")
-    config_table.add_column("Value", style="green")
+    table = Table(title="Build Configuration", show_header=True, header_style="bold cyan")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="green")
 
-    config_table.add_row("Project root", str(project_root))
-    config_table.add_row("Build directory", str(build_dir))
-    config_table.add_row("Build mode", mode.upper())
-    config_table.add.add_row("With tests", "✓" if tests else "✗")
-    config_table.add_row("Clean build", "✓" if clean else "✗")
-    config_table.add_row("Export compile commands", "✓" if export_compile_commands else "✗")
-    config_table.add_row("Parallel jobs", str(jobs or os.cpu_count() or 4))
+    table.add_row("Project root", str(project_root))
+    table.add_row("Build directory", str(build_dir))
+    table.add_row("Build mode", mode.upper())
+    table.add_row("With tests", "✓" if tests else "✗")
+    table.add_row("Clean build", "✓" if clean else "✗")
+    table.add_row("Export compile commands", "✓" if export_compile_commands else "✗")
+    table.add_row("Parallel jobs", str(jobs or os.cpu_count() or 4))
 
-    console.print(config_table)
+    console.print(table)
     console.print()
 
     # -------------------------------
     # Clean build directory
     # -------------------------------
     if clean and build_dir.exists():
-        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
             task = progress.add_task("Cleaning build directory...", total=None)
             shutil.rmtree(build_dir)
             progress.update(task, completed=True)
-        console.print("[green]✓ Build directory cleaned[/green]")
+        console.print("[green]✓ Cleaned build directory[/green]")
 
     build_dir.mkdir(exist_ok=True)
 
     # -------------------------------
-    # Configure CMake
+    # CMake configure
     # -------------------------------
-    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
         task = progress.add_task("Configuring with CMake...", total=None)
 
         cmake_args = [
@@ -118,15 +125,16 @@ def main(mode: str, tests: bool, clean: bool, verbose: bool, export_compile_comm
         run_command(cmake_args, cwd=build_dir)
         progress.update(task, completed=True)
 
-    console.print("[green]✓ CMake configuration completed[/green]")
+    console.print("[green]✓ CMake configured[/green]")
 
     # -------------------------------
     # Build
     # -------------------------------
-    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}")) as progress:
         task = progress.add_task("Building...", total=None)
 
         build_args = ["cmake", "--build", "."]
+
         if verbose:
             build_args.append("--verbose")
 
@@ -135,7 +143,7 @@ def main(mode: str, tests: bool, clean: bool, verbose: bool, export_compile_comm
         run_command(build_args, cwd=build_dir)
         progress.update(task, completed=True)
 
-    console.print("[green]✓ Build completed successfully![/green]")
+    console.print("[green]✓ Build successful![/green]")
 
     # -------------------------------
     # Export compile commands
@@ -145,36 +153,32 @@ def main(mode: str, tests: bool, clean: bool, verbose: bool, export_compile_comm
         dst = project_root / "compile_commands.json"
         if src.exists():
             shutil.copy2(src, dst)
-            console.print(f"[green]✓[/green] Exported compile commands to {dst}")
+            console.print(f"[green]✓ Exported compile_commands.json to {dst}[/green]")
 
     # -------------------------------
-    # Build results panel
+    # Results panel
     # -------------------------------
-    test_block = ""
+    tests_section = ""
     if tests:
-        test_block = (
-            "[bold]To run tests:[/bold]\n"
-            "  [cyan]cd build && ctest[/cyan]\n"
-            "  [cyan]cd build && ctest --verbose[/cyan]\n"
-            "  [cyan]cd build && ctest -R \"test_types\"[/cyan] (run specific test)\n"
+        tests_section = (
+            "[bold]Tests:[/bold]\n"
+            f"  [cyan]{build_dir}/tests[/cyan]\n"
+            "  Run: [cyan]cd build && ctest[/cyan]\n"
         )
 
-    text = (
-        f"[bold green]Build Results[/bold green]\n\n"
-        f"[bold]Built targets:[/bold]\n"
-        f"  📚 Library: {build_dir}/libai-sdk-cpp.a\n"
-        f"  🎯 Examples: {build_dir}/examples/\n"
-        f"{'  🧪 Tests: ' + str(build_dir / 'tests/') if tests else ''}\n\n"
-        f"[bold]To run examples (after setting API keys):[/bold]\n"
-        f"  [cyan]export OPENAI_API_KEY=your_openai_key[/cyan]\n"
-        f"  [cyan]export ANTHROPIC_API_KEY=your_anthropic_key[/cyan]\n"
-        f"  [cyan]{build_dir}/examples/basic_chat[/cyan]\n"
-        f"  [cyan]{build_dir}/examples/streaming_chat[/cyan]\n\n"
-        f"{test_block}"
+    panel_text = (
+        f"[bold green]Build Completed[/bold green]\n\n"
+        f"[bold]Library output:[/bold]\n"
+        f"  [cyan]{build_dir}/libai-sdk-cpp.a[/cyan]\n\n"
+        f"[bold]Examples:[/bold]\n"
+        f"  [cyan]{build_dir}/examples[/cyan]\n\n"
+        f"{tests_section}"
+        f"[bold]Run example:[/bold]\n"
+        f"  export OPENAI_API_KEY=your_key\n"
+        f"  {build_dir}/examples/basic_chat\n"
     )
 
-    results_panel = Panel.fit(text, title="🎉 Success", border_style="green")
-    console.print(results_panel)
+    console.print(Panel.fit(panel_text, title="🎉 Success", border_style="green"))
 
 
 if __name__ == "__main__":
