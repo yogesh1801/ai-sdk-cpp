@@ -6,23 +6,11 @@
 #     "rich>=13.0.0",
 # ]
 # ///
-"""Build script for AI SDK C++
+"""
+Build script for AI SDK C++
 
 Usage: 
     uv run scripts/build.py [OPTIONS]
-
-Examples:
-    uv run scripts/build.py --mode debug
-    uv run scripts/build.py --mode release --tests
-    uv run scripts/build.py --mode debug --tests --clean --export-compile-commands
-
-This script handles:
-- CMake configuration with git submodule dependencies
-- Building in Debug or Release mode
-- Optional test building
-- Clean builds
-- Cross-platform support
-- Export compile commands for IDEs
 """
 
 import os
@@ -50,6 +38,7 @@ def run_command(cmd: list[str], cwd: Optional[Path] = None, check: bool = True) 
         if result.stdout.strip():
             console.print(f"[dim]{result.stdout.strip()}[/dim]")
         return result
+
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Error running command:[/red] {e}")
         if e.stderr:
@@ -59,173 +48,134 @@ def run_command(cmd: list[str], cwd: Optional[Path] = None, check: bool = True) 
         sys.exit(1)
 
 
-
-
 @click.command()
 @click.option(
-    "--mode", 
+    "--mode",
     type=click.Choice(["debug", "release"], case_sensitive=False),
     default="debug",
     help="Build configuration (debug or release)"
 )
-@click.option(
-    "--tests", 
-    is_flag=True,
-    help="Enable building tests"
-)
-@click.option(
-    "--clean", 
-    is_flag=True,
-    help="Clean build directory before building"
-)
-@click.option(
-    "--verbose", 
-    is_flag=True,
-    help="Enable verbose build output"
-)
-@click.option(
-    "--export-compile-commands",
-    is_flag=True,
-    help="Export compile commands for IDEs (compile_commands.json)"
-)
-@click.option(
-    "--jobs",
-    type=int,
-    default=None,
-    help="Number of parallel build jobs (default: CPU count)"
-)
+@click.option("--tests", is_flag=True, help="Enable building tests")
+@click.option("--clean", is_flag=True, help="Clean build directory before building")
+@click.option("--verbose", is_flag=True, help="Enable verbose build output")
+@click.option("--export-compile-commands", is_flag=True, help="Export compile commands for IDEs")
+@click.option("--jobs", type=int, default=None, help="Number of parallel build jobs")
 def main(mode: str, tests: bool, clean: bool, verbose: bool, export_compile_commands: bool, jobs: Optional[int]):
     """Build AI SDK C++ with modern tooling."""
     
-    # Get project paths
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     build_dir = project_root / "build"
-    
-    # Display build configuration
+
+    # -------------------------------
+    # Display configuration
+    # -------------------------------
     config_table = Table(title="Build Configuration", show_header=True, header_style="bold blue")
     config_table.add_column("Setting", style="cyan")
     config_table.add_column("Value", style="green")
-    
+
     config_table.add_row("Project root", str(project_root))
     config_table.add_row("Build directory", str(build_dir))
     config_table.add_row("Build mode", mode.upper())
-    config_table.add_row("With tests", "✓" if tests else "✗")
+    config_table.add.add_row("With tests", "✓" if tests else "✗")
     config_table.add_row("Clean build", "✓" if clean else "✗")
     config_table.add_row("Export compile commands", "✓" if export_compile_commands else "✗")
     config_table.add_row("Parallel jobs", str(jobs or os.cpu_count() or 4))
-    
+
     console.print(config_table)
     console.print()
-    
-    # Clean build directory if requested
+
+    # -------------------------------
+    # Clean build directory
+    # -------------------------------
     if clean and build_dir.exists():
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
             task = progress.add_task("Cleaning build directory...", total=None)
             shutil.rmtree(build_dir)
             progress.update(task, completed=True)
-        console.print("[green]✓[/green] Build directory cleaned")
-    
-    # Create build directory
+        console.print("[green]✓ Build directory cleaned[/green]")
+
     build_dir.mkdir(exist_ok=True)
-    
-    console.print("[green]✓[/green] Dependencies configured via git submodules")
-    console.print()
-    
+
+    # -------------------------------
     # Configure CMake
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
+    # -------------------------------
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
         task = progress.add_task("Configuring with CMake...", total=None)
-        
+
         cmake_args = [
-            'cmake',
+            "cmake",
             str(project_root),
-            '-G', 'Ninja',
-            f'-DCMAKE_BUILD_TYPE={mode.title()}',
+            "-G", "Ninja",
+            f"-DCMAKE_BUILD_TYPE={mode.title()}",
+            f"-DBUILD_TESTS={'ON' if tests else 'OFF'}",
+            "-DBUILD_EXAMPLES=ON"
         ]
-        
-        # Add export compile commands option
+
         if export_compile_commands:
-            cmake_args.append('-DCMAKE_EXPORT_COMPILE_COMMANDS=ON')
-        
-        # Add test option
-        cmake_args.append(f'-DBUILD_TESTS={"ON" if tests else "OFF"}')
-        
-        # Always build examples for now
-        cmake_args.append('-DBUILD_EXAMPLES=ON')
-        
+            cmake_args.append("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
+
         run_command(cmake_args, cwd=build_dir)
         progress.update(task, completed=True)
-    
-    console.print("[green]✓[/green] CMake configuration completed")
-    
+
+    console.print("[green]✓ CMake configuration completed[/green]")
+
+    # -------------------------------
     # Build
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,  
-    ) as progress:
+    # -------------------------------
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
         task = progress.add_task("Building...", total=None)
-        
-        build_args = ['cmake', '--build', '.']
-        
+
+        build_args = ["cmake", "--build", "."]
         if verbose:
-            build_args.append('--verbose')
-        
-        # Add parallel build option
-        parallel_jobs = jobs or os.cpu_count() or 4
-        build_args.extend(['--parallel', str(parallel_jobs)])
-        
+            build_args.append("--verbose")
+
+        build_args.extend(["--parallel", str(jobs or os.cpu_count() or 4)])
+
         run_command(build_args, cwd=build_dir)
         progress.update(task, completed=True)
-    
-    console.print("[green]✓[/green] Build completed successfully!")
-    
-    # Copy compile commands if requested
+
+    console.print("[green]✓ Build completed successfully![/green]")
+
+    # -------------------------------
+    # Export compile commands
+    # -------------------------------
     if export_compile_commands:
-        compile_commands_src = build_dir / "compile_commands.json"
-        compile_commands_dst = project_root / "compile_commands.json"
-        
-        if compile_commands_src.exists():
-            shutil.copy2(compile_commands_src, compile_commands_dst)
-            console.print(f"[green]✓[/green] Exported compile commands to [cyan]{compile_commands_dst}[/cyan]")
-        else:
-            console.print("[yellow]⚠ Warning: compile_commands.json not generated[/yellow]")
-    
-    console.print()
-    
-    # Display build results
-    results_panel = Panel.fit(
-        f"""[bold green]Build Results[/bold green]
+        src = build_dir / "compile_commands.json"
+        dst = project_root / "compile_commands.json"
+        if src.exists():
+            shutil.copy2(src, dst)
+            console.print(f"[green]✓[/green] Exported compile commands to {dst}")
 
-[bold]Built targets:[/bold]
-  📚 Library: {build_dir}/libai-sdk-cpp.a (or .lib on Windows)
-  🎯 Examples: {build_dir}/examples/
-{f"  🧪 Tests: {build_dir}/tests/" if tests else ""}
+    # -------------------------------
+    # Build results panel
+    # -------------------------------
+    test_block = ""
+    if tests:
+        test_block = (
+            "[bold]To run tests:[/bold]\n"
+            "  [cyan]cd build && ctest[/cyan]\n"
+            "  [cyan]cd build && ctest --verbose[/cyan]\n"
+            "  [cyan]cd build && ctest -R \"test_types\"[/cyan] (run specific test)\n"
+        )
 
-[bold]To run examples (after setting API keys):[/bold]
-  [cyan]export OPENAI_API_KEY=your_openai_key[/cyan]
-  [cyan]export ANTHROPIC_API_KEY=your_anthropic_key[/cyan]
-  [cyan]{build_dir}/examples/basic_chat[/cyan]
-  [cyan]{build_dir}/examples/streaming_chat[/cyan]
-
-{"""[bold]To run tests:[/bold]
-  [cyan]cd build && ctest[/cyan]
-  [cyan]cd build && ctest --verbose[/cyan]
-  [cyan]cd build && ctest -R "test_types"[/cyan] (run specific test)""" if tests else ""}""",
-        title="🎉 Success",
-        border_style="green"
+    text = (
+        f"[bold green]Build Results[/bold green]\n\n"
+        f"[bold]Built targets:[/bold]\n"
+        f"  📚 Library: {build_dir}/libai-sdk-cpp.a\n"
+        f"  🎯 Examples: {build_dir}/examples/\n"
+        f"{'  🧪 Tests: ' + str(build_dir / 'tests/') if tests else ''}\n\n"
+        f"[bold]To run examples (after setting API keys):[/bold]\n"
+        f"  [cyan]export OPENAI_API_KEY=your_openai_key[/cyan]\n"
+        f"  [cyan]export ANTHROPIC_API_KEY=your_anthropic_key[/cyan]\n"
+        f"  [cyan]{build_dir}/examples/basic_chat[/cyan]\n"
+        f"  [cyan]{build_dir}/examples/streaming_chat[/cyan]\n\n"
+        f"{test_block}"
     )
-    
+
+    results_panel = Panel.fit(text, title="🎉 Success", border_style="green")
     console.print(results_panel)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
